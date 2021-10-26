@@ -7,7 +7,7 @@ require (
 	github.com/aws/aws-sdk-go v1.38.47
 	github.com/containerd/containerd v1.5.7 // indirect
 	github.com/creasty/defaults v1.5.1
-	github.com/cucumber/godog v0.11.0
+	github.com/cucumber/godog v0.12.2
 	github.com/docker/distribution v2.7.1+incompatible
 	github.com/docker/docker v20.10.6+incompatible
 	github.com/docker/go-connections v0.4.0
@@ -18,9 +18,10 @@ require (
 	github.com/gorilla/schema v1.2.0
 	github.com/imdario/mergo v0.3.12
 	github.com/jcmturner/gokrb5/v8 v8.4.2
-	github.com/mattn/go-shellwords v1.0.12 // indirect
+	github.com/mattn/go-shellwords v1.0.12
 	github.com/mitchellh/golicense v0.2.0
 	github.com/mitchellh/mapstructure v1.4.2
+	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.0.1
 	github.com/oschwald/geoip2-golang v1.5.0
 	github.com/qdm12/reprint v0.0.0-20200326205758-722754a53494
