@@ -8,8 +8,10 @@ import (
 	"github.com/containerssh/libcontainerssh/internal/auditlog/codec"
 	"github.com/containerssh/libcontainerssh/internal/auditlog/codec/asciinema"
 	"github.com/containerssh/libcontainerssh/internal/auditlog/codec/binary"
+	"github.com/containerssh/libcontainerssh/internal/auditlog/codec/json"
 	noneCodec "github.com/containerssh/libcontainerssh/internal/auditlog/codec/none"
 	"github.com/containerssh/libcontainerssh/internal/auditlog/storage"
+	"github.com/containerssh/libcontainerssh/internal/auditlog/storage/elasticsearch"
 	"github.com/containerssh/libcontainerssh/internal/auditlog/storage/file"
 	noneStorage "github.com/containerssh/libcontainerssh/internal/auditlog/storage/none"
 	"github.com/containerssh/libcontainerssh/internal/auditlog/storage/s3"
@@ -70,6 +72,8 @@ func NewEncoder(encoder config.AuditLogFormat, logger log.Logger, geoIPLookupPro
 		return asciinema.NewEncoder(logger, geoIPLookupProvider), nil
 	case config.AuditLogFormatBinary:
 		return binary.NewEncoder(geoIPLookupProvider), nil
+	case config.AuditLogFormatJson:
+		return json.NewEncoder(geoIPLookupProvider), nil
 	default:
 		return nil, fmt.Errorf("invalid audit log encoder: %s", encoder)
 	}
@@ -84,6 +88,8 @@ func NewStorage(cfg config.AuditLogConfig, logger log.Logger) (storage.WritableS
 		return file.NewStorage(cfg.File, logger)
 	case config.AuditLogStorageS3:
 		return s3.NewStorage(cfg.S3, logger)
+	case config.AuditLogStorageElasticSearch:
+		return elasticsearch.NewStorage(cfg.ElasticSearch, logger)
 	default:
 		return nil, fmt.Errorf("invalid audit log storage: %s", cfg.Storage)
 	}

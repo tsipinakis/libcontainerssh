@@ -14,6 +14,7 @@ const (
 	// AuditLogFormatBinary signals that audit logging should take place in CBOR+GZIP format
 	//              (see https://containerssh.github.io/advanced/audit/format/ )
 	AuditLogFormatBinary AuditLogFormat = "binary"
+	AuditLogFormatJson   AuditLogFormat = "json"
 	// AuditLogFormatAsciinema signals that audit logging should take place in Asciicast v2 format
 	//                 (see https://github.com/asciinema/asciinema/blob/develop/doc/asciicast-v2.md )
 	AuditLogFormatAsciinema AuditLogFormat = "asciinema"
@@ -23,6 +24,7 @@ const (
 func (f AuditLogFormat) Validate() error {
 	switch f {
 	case AuditLogFormatBinary:
+	case AuditLogFormatJson:
 	case AuditLogFormatAsciinema:
 	case AuditLogFormatNone:
 	default:
@@ -40,7 +42,8 @@ const (
 	// AuditLogStorageFile signals that audit logs should be stored in a local directory.
 	AuditLogStorageFile AuditLogStorage = "file"
 	// AuditLogStorageS3 signals that audit logs should be stored in an S3-compatible object storage.
-	AuditLogStorageS3 AuditLogStorage = "s3"
+	AuditLogStorageS3            AuditLogStorage = "s3"
+	AuditLogStorageElasticSearch AuditLogStorage = "elasticsearch"
 )
 
 // Validate checks the storage.
@@ -49,6 +52,7 @@ func (s AuditLogStorage) Validate() error {
 	case AuditLogStorageNone:
 	case AuditLogStorageFile:
 	case AuditLogStorageS3:
+	case AuditLogStorageElasticSearch:
 	default:
 		return fmt.Errorf("invalid audit log storage: %s", s)
 	}
@@ -67,6 +71,8 @@ type AuditLogConfig struct {
 	File AuditLogFileConfig `json:"file" yaml:"file"`
 	// S3 configuration
 	S3 AuditLogS3Config `json:"s3" yaml:"s3"`
+	// ElasticSearch configuration
+	ElasticSearch AuditLogElasticSearchConfig `json:"elasticsearch" yaml:"elasticsearch"`
 	// Intercept configures what should be intercepted
 	Intercept AuditLogInterceptConfig `json:"intercept" yaml:"intercept"`
 }
@@ -100,6 +106,9 @@ func (config *AuditLogConfig) Validate() error {
 	case AuditLogStorageS3:
 		return config.S3.Validate()
 	}
+	if config.Storage == AuditLogStorageElasticSearch && config.Format != AuditLogFormatJson {
+		return fmt.Errorf("ElasticSearch can only ingest audit logs in json format")
+	}
 	return nil
 }
 
@@ -119,19 +128,27 @@ func (c *AuditLogFileConfig) Validate() error {
 	return nil
 }
 
+type AuditLogElasticSearchConfig struct {
+	Endpoints []string
+	Username  string
+	Password  string
+
+	Index string
+	
+}
 
 // AuditLogS3Config S3 storage configuration
 type AuditLogS3Config struct {
-	Local           string   `json:"local" yaml:"local" default:"/var/lib/audit"`
-	AccessKey       string   `json:"accessKey" yaml:"accessKey"`
-	SecretKey       string   `json:"secretKey" yaml:"secretKey"`
-	Bucket          string   `json:"bucket" yaml:"bucket"`
-	Region          string   `json:"region" yaml:"region"`
-	Endpoint        string   `json:"endpoint" yaml:"endpoint"`
-	CACert          string   `json:"cacert" yaml:"cacert"`
-	ACL             string   `json:"acl" yaml:"acl"`
-	PathStyleAccess bool     `json:"pathStyleAccess" yaml:"pathStyleAccess"`
-	UploadPartSize  uint     `json:"uploadPartSize" yaml:"uploadPartSize" default:"5242880"`
+	Local           string             `json:"local" yaml:"local" default:"/var/lib/audit"`
+	AccessKey       string             `json:"accessKey" yaml:"accessKey"`
+	SecretKey       string             `json:"secretKey" yaml:"secretKey"`
+	Bucket          string             `json:"bucket" yaml:"bucket"`
+	Region          string             `json:"region" yaml:"region"`
+	Endpoint        string             `json:"endpoint" yaml:"endpoint"`
+	CACert          string             `json:"cacert" yaml:"cacert"`
+	ACL             string             `json:"acl" yaml:"acl"`
+	PathStyleAccess bool               `json:"pathStyleAccess" yaml:"pathStyleAccess"`
+	UploadPartSize  uint               `json:"uploadPartSize" yaml:"uploadPartSize" default:"5242880"`
 	ParallelUploads uint               `json:"parallelUploads" yaml:"parallelUploads" default:"20"`
 	Metadata        AuditLogS3Metadata `json:"metadata" yaml:"metadata"`
 }
@@ -171,4 +188,3 @@ type AuditLogS3Metadata struct {
 	IP       bool `json:"ip" yaml:"ip"`
 	Username bool `json:"username" yaml:"username"`
 }
-
