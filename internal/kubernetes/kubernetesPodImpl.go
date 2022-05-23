@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -41,6 +43,143 @@ type kubernetesPodImpl struct {
 	removeLock            *sync.Mutex
 	shuttingDown          bool
 	shutdown              bool
+}
+
+type cooridationAnnotation struct {
+	Revision uint64
+	Connections []string
+}
+
+type jsonPatchOperation struct {
+	Operation string `json:"op"`
+	Path string `json:"path"`
+	Value string `json:"value"`
+}
+
+func (k *kubernetesPodImpl) markInUse(ctx context.Context, connectionId string) error {
+	coordination, err := k.fetchCoordination(ctx)
+	if err != nil {
+		return err
+	}
+	if len(coordination.Connections) == 0 {
+		return fmt.Errorf("Pod marked for deletion")
+	}
+	
+	oldmar, err := json.Marshal(coordination)
+	if err != nil {
+		return err
+	}
+
+	coordination.Connections = append(coordination.Connections, connectionId)
+	coordination.Revision++
+
+	mar, err := json.Marshal(coordination)
+	if err != nil {
+		return err
+	}
+	test := jsonPatchOperation{
+		Operation: "test",
+		Path: "/metadata/annotations/containerssh.io~1coordination",
+		Value: string(oldmar),
+	}
+	patch := jsonPatchOperation{
+		Operation: "add",
+		Path: "/metadata/annotations/containerssh.io~1coordination",
+		Value: string(mar),
+	}
+	jsonPatch, err := json.Marshal([]jsonPatchOperation{test, patch})
+	if err != nil {
+		return err
+	}
+
+	_, err = k.client.CoreV1().Pods(k.pod.Namespace).Patch(ctx, k.pod.Name, types.JSONPatchType, []byte(jsonPatch), meta.PatchOptions{})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (k *kubernetesPodImpl) fetchCoordination(ctx context.Context) (cooridationAnnotation, error) {
+	var coordination cooridationAnnotation
+	result, err := k.client.CoreV1().Pods(k.pod.Namespace).Get(ctx, k.pod.Name, meta.GetOptions{})
+	if err != nil {
+		return coordination, err
+	}
+
+	k.logger.Debug("Fetched: ", result.Annotations)
+
+	return k.getCoordination(result)
+}
+
+func (k *kubernetesPodImpl) getCoordination(pod *core.Pod) (cooridationAnnotation, error) {
+	var coordination cooridationAnnotation
+	val, ok := pod.Annotations["containerssh.io/coordination"]
+	if !ok {
+		return coordination, fmt.Errorf("Coordination field not found")
+	}
+	err := json.Unmarshal([]byte(val), &coordination)
+	if err != nil {
+		return coordination, err
+	}
+	return coordination, nil
+}
+
+func (k *kubernetesPodImpl) markNotInUse(ctx context.Context, connectionId string) error {
+	coordination, err := k.fetchCoordination(ctx)
+	if err != nil {
+		return err
+	}
+	if len(coordination.Connections) == 0 {
+		return fmt.Errorf("Pod already marked for deletion")
+	}
+
+	var i int
+	for j, val := range coordination.Connections {
+		if val == connectionId {
+			i = j
+		}
+	}
+
+	k.logger.Debug("Coordination before: ", coordination)
+	coordination.Connections = append(coordination.Connections[:i], coordination.Connections[i+1:]...)
+	coordination.Revision++
+
+	mar, err := json.Marshal(coordination)
+	if err != nil {
+		return err
+	}
+	test := jsonPatchOperation{
+		Operation: "test",
+		Path: "/metadata/annotations/containerssh.io~1coordination",
+		Value: k.pod.Annotations["containerssh.io/coordination"],
+	}
+	patch := jsonPatchOperation{
+		Operation: "add",
+		Path: "/metadata/annotations/containerssh.io~1coordination",
+		Value: string(mar),
+	}
+	jsonPatch, err := json.Marshal([]jsonPatchOperation{test, patch})
+	if err != nil {
+		return err
+	}
+
+	result, err := k.client.CoreV1().Pods(k.pod.Namespace).Patch(ctx, k.pod.Name, types.JSONPatchType, []byte(jsonPatch), meta.PatchOptions{})
+	if err != nil {
+		return err
+	}
+
+	coordination, err = k.getCoordination(result)
+	if err != nil {
+		return err
+	}
+	k.logger.Debug("Coordination after: ", coordination)
+	if len(coordination.Connections) == 0 {
+		k.logger.Debug(message.NewMessage(message.MKubernetesPodRemove, "Removing pod..."))
+		k.remove(ctx)
+	}
+
+	return nil
 }
 
 func (k *kubernetesPodImpl) getExitCode(ctx context.Context) (int32, error) {

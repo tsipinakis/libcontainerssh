@@ -311,7 +311,7 @@ func (k *kubernetesExecutionImpl) handleStream(
 	close(k.doneChan)
 	_ = closeWrite()
 	k.terminalSizeQueue.Stop()
-	if k.pod.config.Pod.Mode == config.KubernetesExecutionModeConnection {
+	if k.pod.config.Pod.Mode == config.KubernetesExecutionModeConnection || k.pod.config.Pod.Mode == config.KubernetesExecutionModeUser {
 		k.pod.wg.Done()
 	}
 	if err != nil {
@@ -321,7 +321,7 @@ func (k *kubernetesExecutionImpl) handleStream(
 		} else {
 			k.sendExitCodeToClient(onExit)
 		}
-	} else if k.pod.config.Pod.Mode == config.KubernetesExecutionModeConnection {
+	} else if k.pod.config.Pod.Mode == config.KubernetesExecutionModeConnection || k.pod.config.Pod.Mode == config.KubernetesExecutionModeUser {
 		onExit(0)
 	} else {
 		k.sendExitCodeToClient(onExit)

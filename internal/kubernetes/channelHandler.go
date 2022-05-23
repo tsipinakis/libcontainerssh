@@ -90,6 +90,8 @@ func (c *channelHandler) run(
 
 	var err error
 	switch c.networkHandler.config.Pod.Mode {
+	case config.KubernetesExecutionModeUser:
+		fallthrough
 	case config.KubernetesExecutionModeConnection:
 		err = c.handleExecModeConnection(ctx, program)
 	case config.KubernetesExecutionModeSession:

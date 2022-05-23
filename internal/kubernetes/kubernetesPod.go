@@ -6,6 +6,8 @@ import (
 
 // kubernetesPod is the representation of a created Pod.
 type kubernetesPod interface {
+	markNotInUse(ctx context.Context, connectionId string) error 
+
 	// attach attaches to the Pod on the main console.
 	attach(ctx context.Context) (kubernetesExecution, error)
 

@@ -244,6 +244,7 @@ func (c KubernetesTimeoutConfig) Validate() error {
 type KubernetesExecutionMode string
 
 const (
+	KubernetesExecutionModeUser KubernetesExecutionMode = "user"
 	// KubernetesExecutionModeConnection launches one container per SSH connection.
 	KubernetesExecutionModeConnection KubernetesExecutionMode = "connection"
 	// KubernetesExecutionModeSession launches one container per SSH session (multiple containers per connection).
@@ -253,6 +254,8 @@ const (
 // Validate validates the execution config.
 func (e KubernetesExecutionMode) Validate() error {
 	switch e {
+	case KubernetesExecutionModeUser:
+		fallthrough
 	case KubernetesExecutionModeConnection:
 		fallthrough
 	case KubernetesExecutionModeSession:

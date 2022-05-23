@@ -2,16 +2,18 @@ package kubernetes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"strings"
 	"sync"
 
 	"github.com/containerssh/libcontainerssh/auth"
-	"github.com/containerssh/libcontainerssh/message"
+	"github.com/containerssh/libcontainerssh/config"
 	config2 "github.com/containerssh/libcontainerssh/config"
 	"github.com/containerssh/libcontainerssh/internal/sshserver"
 	"github.com/containerssh/libcontainerssh/log"
+	"github.com/containerssh/libcontainerssh/message"
 )
 
 type networkHandler struct {
@@ -87,30 +89,21 @@ func (n *networkHandler) OnHandshakeSuccess(username string, clientVersion strin
 		}
 	}
 
-	var err error
 	if n.config.Pod.Mode == config2.KubernetesExecutionModeConnection {
-		if n.pod, err = n.cli.createPod(ctx, n.labels, n.annotations, env, nil, nil); err != nil {
+		err := n.createPod(ctx, metadata, env)
+		if err != nil {
 			return nil, err
 		}
-		for path, content := range metadata.GetFiles() {
-			ctx, cancelFunc := context.WithTimeout(
-				context.Background(),
-				n.config.Timeouts.CommandStart,
-			)
-			n.logger.Debug(message.NewMessage(
-				message.MKubernetesFileModification,
-				"Writing to file %s",
-				path,
-			))
-			defer cancelFunc()
-			err := n.pod.writeFile(ctx, path, content)
+	} else if n.config.Pod.Mode == config2.KubernetesExecutionModeUser {
+		var err error
+		n.pod, err = n.cli.findPod(ctx, n.labels, n.connectionID)
+		if err != nil {
+			n.logger.Debug(err)
+		}
+		if n.pod == nil {
+			err := n.createPod(ctx, metadata, env)
 			if err != nil {
-				n.logger.Warning(message.Wrap(
-					err,
-					message.EKubernetesFileModificationFailed,
-					"Failed to write to %s",
-					path,
-				))
+				return nil, err
 			}
 		}
 	}
@@ -132,8 +125,16 @@ func (n *networkHandler) OnDisconnect() {
 	n.disconnected = true
 	ctx, cancelFunc := context.WithTimeout(context.Background(), n.config.Timeouts.PodStop)
 	defer cancelFunc()
+
 	if n.pod != nil {
-		_ = n.pod.remove(ctx)
+		if n.config.Pod.Mode == config.KubernetesExecutionModeUser {
+			err := n.pod.markNotInUse(ctx, n.connectionID)
+			if err != nil {
+				n.logger.Warning(message.Wrap(err, message.EKubernetesCannotSendSignalNoAgent, "Failed to mark unused pod"))
+			}
+		} else {
+			_ = n.pod.remove(ctx)
+		}
 	}
 	close(n.done)
 }
@@ -144,4 +145,45 @@ func (n *networkHandler) OnShutdown(shutdownContext context.Context) {
 		n.OnDisconnect()
 	case <-n.done:
 	}
+}
+
+func (n *networkHandler) createPod(ctx context.Context, metadata *auth.ConnectionMetadata, env map[string]string) error {
+	if n.config.Pod.Mode == config.KubernetesExecutionModeUser {
+		coordination, err := json.Marshal(cooridationAnnotation{
+			Revision: 1,
+			Connections: []string{n.connectionID},
+		})
+		if err != nil {
+			n.logger.Emergency(err)
+			return err
+		}
+		n.logger.Debug("COORDINATION: %s", string(coordination))
+		n.annotations["containerssh.io/coordination"] = string(coordination)
+	}
+	var err error
+	if n.pod, err = n.cli.createPod(ctx, n.labels, n.annotations, env, nil, nil); err != nil {
+		return err
+	}
+	for path, content := range metadata.GetFiles() {
+		ctx, cancelFunc := context.WithTimeout(
+			context.Background(),
+			n.config.Timeouts.CommandStart,
+		)
+		n.logger.Debug(message.NewMessage(
+			message.MKubernetesFileModification,
+			"Writing to file %s",
+			path,
+		))
+		defer cancelFunc()
+		err := n.pod.writeFile(ctx, path, content)
+		if err != nil {
+			n.logger.Warning(message.Wrap(
+				err,
+				message.EKubernetesFileModificationFailed,
+				"Failed to write to %s",
+				path,
+			))
+		}
+	}
+	return nil
 }
